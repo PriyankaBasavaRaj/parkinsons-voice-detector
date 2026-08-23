@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voice &amp; Parkinson's, a signal-processing demo</title>
+<style>
+  :root {
+    --bg: #0e1a1a;
+    --bg-panel: #142726;
+    --line: #24413e;
+    --ink: #eaf2f0;
+    --ink-dim: #9db3af;
+    --accent: #e8a24c;
+    --accent-dim: #6b5432;
+    --good: #6fbf8b;
+    --warn: #e8886c;
+    --mono: 'IBM Plex Mono', 'SF Mono', Consolas, monospace;
+    --display: 'Fraunces', Georgia, serif;
+    --body: 'Inter', -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--body);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    background-image:
+      radial-gradient(ellipse 800px 400px at 20% -10%, rgba(232,162,76,0.07), transparent),
+      radial-gradient(ellipse 600px 500px at 90% 20%, rgba(111,191,139,0.05), transparent);
+  }
+
+  .wrap { max-width: 760px; margin: 0 auto; padding: 56px 24px 100px; }
+
+  header { margin-bottom: 48px; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 18px;
+  }
+
+  h1 {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: clamp(32px, 5vw, 46px);
+    line-height: 1.08;
+    margin: 0 0 18px;
+    letter-spacing: -0.01em;
+  }
+
+  header p {
+    color: var(--ink-dim);
+    font-size: 16px;
+    line-height: 1.6;
+    max-width: 58ch;
+    margin: 0;
+  }
+
+  .panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 32px;
+    margin-bottom: 24px;
+  }
+
+  .rec-row {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+
+  button {
+    font-family: var(--body);
+    font-weight: 600;
+    font-size: 15px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--ink);
+    padding: 13px 26px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #1a1200;
+  }
+  button.primary:hover:not(:disabled) { background: #f0ae5e; }
+
+  button.recording {
+    background: var(--warn);
+    border-color: var(--warn);
+    color: #2a0d05;
+  }
+
+  .file-label {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--ink-dim);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  #fileInput { display: none; }
+
+  .timer {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--ink-dim);
+    min-width: 42px;
+  }
+
+  #vizWrap { margin-top: 24px; height: 96px; }
+  canvas#viz { width: 100%; height: 96px; display: block; }
+
+  .hint {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink-dim);
+    margin-top: 16px;
+    line-height: 1.6;
+  }
+
+  .status-line {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--ink-dim);
+    margin-top: 18px;
+    min-height: 20px;
+  }
+  .status-line.error { color: var(--warn); }
+
+  #results { display: none; }
+
+  .result-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+
+  .verdict {
+    font-family: var(--display);
+    font-size: 26px;
+    font-weight: 600;
+  }
+  .verdict.healthy { color: var(--good); }
+  .verdict.pd { color: var(--warn); }
+
+  .confidence {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--ink-dim);
+  }
+
+  .bar-track {
+    height: 10px;
+    border-radius: 999px;
+    background: #0b1615;
+    overflow: hidden;
+    margin-bottom: 28px;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.6s ease;
+  }
+
+  .conclusion {
+    font-size: 14.5px;
+    line-height: 1.65;
+    color: var(--ink);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 28px;
+  }
+  .conclusion strong { color: var(--accent); }
+  .conclusion ul { margin: 10px 0 0; padding-left: 20px; }
+  .conclusion li { margin-bottom: 6px; }
+
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 14px;
+    font-family: var(--mono);
+  }
+  .feature-cell {
+    border-top: 1px solid var(--line);
+    padding-top: 10px;
+  }
+  .feature-cell .k { font-size: 11px; color: var(--ink-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+  .feature-cell .v { font-size: 17px; margin-top: 4px; }
+
+  .disclaimer {
+    border-left: 3px solid var(--accent-dim);
+    padding: 16px 20px;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--ink-dim);
+    background: rgba(232,162,76,0.04);
+    border-radius: 0 8px 8px 0;
+  }
+  .disclaimer strong { color: var(--ink); }
+
+  footer {
+    margin-top: 56px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink-dim);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  footer a { color: var(--ink-dim); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Signal processing · Machine learning demo</div>
+    <h1>What your voice's steadiness can (partly) tell you</h1>
+    <p>
+      Parkinson's disease often shows up in speech first, subtle tremor in
+      pitch and loudness, before it's visible anywhere else. This runs a
+      model trained on the Oxford Parkinson's voice dataset entirely in
+      your browser: nothing you record ever leaves this page.
+    </p>
+  </header>
+
+  <div class="panel">
+    <div class="rec-row">
+      <button id="recordBtn" class="primary">● Record 5s of "ahhh"</button>
+      <span class="timer" id="timer"></span>
+      <span class="file-label" id="fileLabel">or upload a .wav / .mp3 file</span>
+      <input type="file" id="fileInput" accept="audio/*">
+      <button id="analyzeBtn" disabled>Analyze</button>
+    </div>
+
+    <div id="vizWrap"><canvas id="viz"></canvas></div>
+
+    <div class="status-line" id="statusLine"></div>
+
+    <div class="hint">
+      Hold a single steady vowel sound ("ahhh") at a comfortable pitch and
+      volume for the full clip, that's what the underlying dataset was
+      built from. Background noise or a wavering recording will reduce
+      accuracy.
+    </div>
+  </div>
+
+  <div class="panel" id="results">
+    <div class="result-head">
+      <div class="verdict" id="verdict">...</div>
+      <div class="confidence" id="confidence">...</div>
+    </div>
+    <div class="bar-track"><div class="bar-fill" id="barFill"></div></div>
+
+    <div class="conclusion" id="conclusion"></div>
+
+    <div class="feature-grid" id="featureGrid"></div>
+  </div>
+
+  <div class="disclaimer">
+    <strong>This is a portfolio / educational demo, not a medical device.</strong>
+    It's trained on 195 recordings from 31 people and uses a simplified,
+    browser-based approximation of acoustic features (no clinical-grade
+    signal processing). Cross-validated accuracy is roughly 70%, informative
+    for exploring how voice-based screening works, not for diagnosis. If
+    you have concerns about Parkinson's disease, please talk to a doctor.
+  </div>
+
+  <footer>
+    <span>Model: Random Forest · 6 features · patient-grouped CV</span>
+    <a href="https://github.com/" id="repoLink">View source on GitHub →</a>
+  </footer>
+</div>
+
+<script src="model.js"></script>
+<script src="feature-extraction.js"></script>
+<script>
+(async () => {
+  const scalerConfig = await fetch('scaler_config.json').then(r => r.json());
+
+  const recordBtn = document.getElementById('recordBtn');
+  const analyzeBtn = document.getElementById('analyzeBtn');
+  const fileInput = document.getElementById('fileInput');
+  const fileLabel = document.getElementById('fileLabel');
+  const timerEl = document.getElementById('timer');
+  const statusLine = document.getElementById('statusLine');
+  const canvas = document.getElementById('viz');
+  const ctx = canvas.getContext('2d');
+
+  let mediaRecorder, recordedChunks = [], recordTimer, recordSeconds = 0;
+  let currentBlob = null;
+  let audioCtxViz, analyserNode, vizRAF;
+
+  function resizeCanvas() {
+    canvas.width = canvas.clientWidth * devicePixelRatio;
+    canvas.height = canvas.clientHeight * devicePixelRatio;
+  }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  function setStatus(msg, isError = false) {
+    statusLine.textContent = msg;
+    statusLine.classList.toggle('error', isError);
+  }
+
+  function drawStaticWave(buffer) {
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = '#e8a24c';
+    ctx.lineWidth = 2 * devicePixelRatio;
+    ctx.beginPath();
+    const step = Math.ceil(buffer.length / w);
+    for (let x = 0; x < w; x++) {
+      const idx = x * step;
+      const v = buffer[idx] || 0;
+      const y = h / 2 + v * h * 0.42;
+      x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  function drawLiveViz() {
+    if (!analyserNode) return;
+    const data = new Uint8Array(analyserNode.fftSize);
+    analyserNode.getByteTimeDomainData(data);
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = '#e8886c';
+    ctx.lineWidth = 2 * devicePixelRatio;
+    ctx.beginPath();
+    const step = Math.ceil(data.length / w);
+    for (let x = 0; x < w; x++) {
+      const v = (data[x * step] - 128) / 128;
+      const y = h / 2 + v * h * 0.42;
+      x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    vizRAF = requestAnimationFrame(drawLiveViz);
+  }
+
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioCtxViz = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioCtxViz.createMediaStreamSource(stream);
+      analyserNode = audioCtxViz.createAnalyser();
+      analyserNode.fftSize = 2048;
+      source.connect(analyserNode);
+      drawLiveViz();
+
+      recordedChunks = [];
+      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.ondataavailable = e => recordedChunks.push(e.data);
+      mediaRecorder.onstop = () => {
+        currentBlob = new Blob(recordedChunks, { type: 'audio/webm' });
+        stream.getTracks().forEach(t => t.stop());
+        cancelAnimationFrame(vizRAF);
+        audioCtxViz.close();
+        analyzeBtn.disabled = false;
+        fileLabel.textContent = 'Recording captured, click Analyze, or upload a file instead';
+        setStatus('Recording ready.');
+      };
+      mediaRecorder.start();
+
+      recordBtn.textContent = '■ Stop';
+      recordBtn.classList.add('recording');
+      recordSeconds = 0;
+      timerEl.textContent = '0.0s';
+      recordTimer = setInterval(() => {
+        recordSeconds += 0.1;
+        timerEl.textContent = recordSeconds.toFixed(1) + 's';
+        if (recordSeconds >= 5) stopRecording();
+      }, 100);
+    } catch (err) {
+      setStatus('Microphone access denied or unavailable: ' + err.message, true);
+    }
+  }
+
+  function stopRecording() {
+    clearInterval(recordTimer);
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+    recordBtn.textContent = '● Record 5s of "ahhh"';
+    recordBtn.classList.remove('recording');
+  }
+
+  recordBtn.addEventListener('click', () => {
+    if (recordBtn.classList.contains('recording')) stopRecording();
+    else startRecording();
+  });
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) {
+      currentBlob = fileInput.files[0];
+      fileLabel.textContent = `Loaded: ${currentBlob.name}`;
+      analyzeBtn.disabled = false;
+      setStatus('File ready.');
+    }
+  });
+  fileLabel.addEventListener('click', () => fileInput.click());
+
+  function zScore(value, i) {
+    return (value - scalerConfig.mean[i]) / scalerConfig.scale[i];
+  }
+
+  function classify(features) {
+    const input = scalerConfig.feature_order.map((name, i) => zScore(features[name], i));
+    const [probHealthy, probPD] = score(input); // score() comes from model.js
+    return { probHealthy, probPD };
+  }
+
+  function buildConclusion(isPD, confidencePct) {
+    let confidenceWord;
+    if (confidencePct >= 85) confidenceWord = 'high';
+    else if (confidencePct >= 65) confidenceWord = 'moderate';
+    else confidenceWord = 'low';
+
+    if (isPD) {
+      return `
+        <strong>What this means:</strong> the model measured ${confidencePct}%
+        confidence (${confidenceWord}) that this recording's pitch and amplitude
+        patterns resemble the Parkinsonian voices it was trained on, specifically
+        more cycle-to-cycle instability in pitch and loudness than typical steady
+        speech.
+        <br><br>
+        <strong>This is not a diagnosis.</strong> A single browser-based recording
+        can be affected by microphone quality, background noise, how steadily you
+        held the vowel, or normal day-to-day voice variation, any of which can
+        produce this result in someone with no underlying condition.
+        <br><br>
+        <strong>What to do next:</strong>
+        <ul>
+          <li>Try recording again in a quiet room, holding "ahhh" as steadily as you can, to see if the result is consistent.</li>
+          <li>If this result is consistent across attempts, or you have other symptoms (tremor, stiffness, slowed movement, changes in handwriting), it's worth mentioning to a doctor, who can do a real clinical assessment.</li>
+          <li>Do not treat this tool as medical evidence on its own, it's a demonstration of the technique, not a diagnostic instrument.</li>
+        </ul>`;
+    }
+
+    return `
+      <strong>What this means:</strong> the model measured ${confidencePct}%
+      confidence (${confidenceWord}) that this recording's pitch and amplitude
+      patterns look like the steady, typical voices it was trained on.
+      <br><br>
+      <strong>This is not a clean bill of health.</strong> A "typical" result
+      only reflects what a short recording captured in this moment, it can't
+      rule anything out, especially in early-stage cases where vocal changes
+      may be subtle or absent.
+      <br><br>
+      <strong>What to do next:</strong>
+      <ul>
+        <li>No action needed based on this result alone, it's informational, not clinical.</li>
+        <li>If you have any actual symptoms or concerns, talk to a doctor regardless of what this tool says.</li>
+      </ul>`;
+  }
+
+  function renderResults(features, probHealthy, probPD) {
+    document.getElementById('results').style.display = 'block';
+    const isPD = probPD > probHealthy;
+    const verdict = document.getElementById('verdict');
+    verdict.textContent = isPD ? 'Signs of vocal tremor detected' : 'Voice reads as typical';
+    verdict.className = 'verdict ' + (isPD ? 'pd' : 'healthy');
+
+    const confidencePct = Math.round(Math.max(probPD, probHealthy) * 100);
+    document.getElementById('confidence').textContent = `${confidencePct}% model confidence`;
+
+    const barFill = document.getElementById('barFill');
+    barFill.style.width = `${Math.round(probPD * 100)}%`;
+    barFill.style.background = isPD ? 'var(--warn)' : 'var(--good)';
+
+    const conclusionEl = document.getElementById('conclusion');
+    conclusionEl.innerHTML = buildConclusion(isPD, confidencePct);
+
+    const grid = document.getElementById('featureGrid');
+    const display = {
+      'Mean pitch': `${features['MDVP:Fo(Hz)'].toFixed(1)} Hz`,
+      'Pitch range': `${features['MDVP:Flo(Hz)'].toFixed(0)}–${features['MDVP:Fhi(Hz)'].toFixed(0)} Hz`,
+      'Jitter': `${features['MDVP:Jitter(%)'].toFixed(3)}%`,
+      'Shimmer': features['MDVP:Shimmer'].toFixed(4),
+      'HNR (approx.)': `${features['HNR'].toFixed(1)} dB`,
+      'Voiced frames': features['_frameCount'],
+    };
+    grid.innerHTML = Object.entries(display).map(([k, v]) =>
+      `<div class="feature-cell"><div class="k">${k}</div><div class="v">${v}</div></div>`
+    ).join('');
+
+    document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  analyzeBtn.addEventListener('click', async () => {
+    if (!currentBlob) return;
+    analyzeBtn.disabled = true;
+    setStatus('Decoding audio…');
+    try {
+      const { channelData, sampleRate } = await FeatureExtractor.decodeAudio(currentBlob);
+      drawStaticWave(channelData);
+      setStatus('Extracting pitch, jitter, shimmer…');
+      await new Promise(r => setTimeout(r, 50)); // let UI paint
+      const features = FeatureExtractor.extract(channelData, sampleRate);
+      setStatus('Running model…');
+      const { probHealthy, probPD } = classify(features);
+      renderResults(features, probHealthy, probPD);
+      setStatus('Done. This is a demo, see disclaimer below.');
+    } catch (err) {
+      setStatus(err.message, true);
+    } finally {
+      analyzeBtn.disabled = false;
+    }
+  });
+})();
+</script>
+</body>
+</html>
